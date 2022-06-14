@@ -41,8 +41,6 @@ def download_url(url: str, folder: str, filename: str, log: bool = True):
         f.write(data.read())
 
     return path
-#TODO:现在有些属性,e.g. num_classes, num_etypes不应该存储，而是HeteroGraph()提供属性方法
-# 数据集处理对于HeteroGraph()的使用仅限于__setaddr__
 
 class HGBDataset(InMemoryDataset):
     r"""A variety of heterogeneous graph benchmark datasets from the
@@ -167,10 +165,9 @@ class HGBDataset(InMemoryDataset):
         for n_type in n_types.values():
             if len(x_dict[n_type]) == 0:
                 data[n_type].x = tlx.ops.eye(num_nodes_dict[n_type])
-                data[n_type].num_nodes = num_nodes_dict[n_type]
             else:
                 data[n_type].x = tlx.ops.convert_to_tensor(x_dict[n_type])
-                data[n_type].num_nodes = num_nodes_dict[n_type]
+
 
         edge_index_dict = defaultdict(list)
         edge_weight_dict = defaultdict(list)
@@ -184,7 +181,7 @@ class HGBDataset(InMemoryDataset):
             edge_weight_dict[e_type].append(float(weight))
 
         for e_type in e_types.values():
-            edge_index = tlx.ops.convert_to_tensor(np.array(edge_index_dict[e_type]).T)
+            edge_index = tlx.ops.convert_to_tensor(np.array(edge_index_dict[e_type], dtype=np.int64).T)
             data[e_type].edge_index = edge_index
 
             edge_weight = np.array(edge_weight_dict[e_type])
@@ -206,37 +203,29 @@ class HGBDataset(InMemoryDataset):
                 if not hasattr(data[n_type], 'y'):
                     num_nodes = data[n_type].num_nodes
                     if self.name in ['imdb']:  # multi-label
-                        data[n_type].y = np.zeros((num_nodes, num_classes))
+                        y_list = np.zeros((num_nodes, num_classes))
                     else:
-                        data[n_type].y = np.full((num_nodes, ), -1, dtype='int64')
-                    data[n_type].train_mask = np.full((num_nodes),False,dtype='bool')
-                    data[n_type].test_mask = np.full((num_nodes),False,dtype='bool')
+                        y_list = np.full((num_nodes, ), -1, dtype='int64')
+                    train_mask = np.full((num_nodes), False, dtype='bool')
+                    test_mask = np.full((num_nodes), False, dtype='bool')
                     
-                if(len(data[n_type].y.shape) > 1):
+                if(len(y_list.shape) > 1):
                 # multi-label
                     for v in y[3].split(','):
-                        data[n_type].y[n_id, int(v)] = 1
+                        y_list[n_id, int(v)] = 1
                 else:
-                    data[n_type].y[n_id] = int(y[3])
-                data[n_type].train_mask[n_id] = True
+                    y_list[n_id] = int(y[3])
+                train_mask[n_id] = True
             for y in test_ys:
                 n_id, n_type = mapping_dict[int(y[0])], n_types[int(y[2])]
-                
-                if(len(data[n_type].y.shape) > 1):
-                # multi-label
-                    for v in y[3].split(','):
-                        data[n_type].y[n_id, int(v)] = 1
-                else:
-                    data[n_type].y[n_id] = int(y[3])
-                data[n_type].test_mask[n_id] = True
+                test_mask[n_id] = True
 
-            data[n_type].y = tlx.ops.convert_to_tensor(data[n_type].y)
-            data[n_type].train_mask = tlx.ops.convert_to_tensor(data[n_type].train_mask)
-            
-            data[n_type].test_mask = tlx.ops.convert_to_tensor(data[n_type].test_mask)
+            data[n_type].y = tlx.ops.convert_to_tensor(y_list)
+            data[n_type].train_mask = tlx.ops.convert_to_tensor(train_mask)
+            data[n_type].test_mask = tlx.ops.convert_to_tensor(test_mask)
         else:  # Link prediction:
             raise NotImplementedError
-
+            
         if self.pre_transform is not None:
             data = self.pre_transform(data)
         self.save_data(self.collate([data]), self.processed_paths[0])
@@ -244,3 +233,23 @@ class HGBDataset(InMemoryDataset):
 
     def __repr__(self) -> str:
         return f'{self.names[self.name]}()'
+
+
+    def save_results(self, logits, test_idx, file_path):
+        test_logits = logits[test_idx]
+        if self.name == 'imdb':
+            pred = (tlx.convert_to_numpy(test_logits) > 0).astype(int)
+            multi_label = []
+            for i in range(pred.shape[0]):
+                label_list = [str(j) for j in range(pred[i].shape[0]) if pred[i][j] == 1]
+                multi_label.append(','.join(label_list))
+            pred = multi_label
+        elif self.name in ['acm', 'dblp', 'freebase']:
+            pred = tlx.convert_to_numpy(test_logits).argmax(axis=-1)
+            pred = np.array(pred)
+        else:
+            return
+        
+        with open(file_path, "w") as f:
+            for nid, l in zip(test_idx, pred):
+                f.write(f"{nid}\t\t{0}\t{l}\n")
