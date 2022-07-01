@@ -488,7 +488,7 @@ class Graph(BaseGraph):
 
 	def __inc__(self, key: str, value: Any, *args, **kwargs) -> Any:
 		if 'batch' in key:
-			return int(value.max()) + 1
+			return int(tlx.reduce_max(value)) + 1
 		elif 'index' in key or key == 'face':
 			return self.num_nodes
 		else:
@@ -546,8 +546,7 @@ class Graph(BaseGraph):
 		"""
 		if hasattr(self, 'csc_adj'):
 			return self.csc_adj.degree
-		return tlx.unsorted_segment_sum(tlx.ones(shape=(self.edge_index.shape[1],), dtype=tlx.int64),
-		                                self.edge_index[1], self.num_nodes)
+		return tlx.unsorted_segment_sum(tlx.ones(shape=(self.edge_index.shape[1],), dtype=tlx.int64), self.edge_index[1], self.num_nodes)
 
 	@property
 	def out_degree(self):
@@ -556,8 +555,7 @@ class Graph(BaseGraph):
 		"""
 		if hasattr(self, 'csr_adj'):
 			return self.csr_adj.degree
-		return tlx.unsorted_segment_sum(tlx.ones(shape=(self.edge_index.shape[1],), dtype=tlx.int64),
-		                                self.edge_index[0], self.num_nodes)
+		return tlx.unsorted_segment_sum(tlx.ones(shape=(self.edge_index.shape[1],), dtype=tlx.int64), self.edge_index[0], self.num_nodes)
 
 	def add_self_loop(self, n_loops=1):
 		"""
@@ -568,9 +566,9 @@ class Graph(BaseGraph):
 		Returns
 		-------
 		edge_index: Tensor
-  			original edges with self loop edges.
+			original edges with self loop edges.
 		edge_attr: FloatTensor
-  			attributes of edges.
+			attributes of edges.
 		"""
 		return add_self_loops(self.edge_index, n_loops, self.edge_attr, num_nodes=self.num_nodes)
 
@@ -681,9 +679,10 @@ class Graph(BaseGraph):
 		:obj:`node_type_names` and :obj:`edge_type_names` can be used to give
 		meaningful node and edge type names, respectively.
 		That is, the node_type :obj:`0` is given by :obj:`node_type_names[0]`.
-		If the :class:`~torch_geometric.data.Data` object was constructed via
-		:meth:`~torch_geometric.data.HeteroData.to_homogeneous`, the object can
+		If the :class:`~gammagl.data.Graph` object was constructed via
+		:meth:`~gammagl.data.HeteroGraph.to_homogeneous`, the object can
 		be reconstructed without any need to pass in additional arguments.
+
 		Args:
 			node_type (Tensor, optional): A node-level vector denoting the type
 				of each node. (default: :obj:`None`)
@@ -699,18 +698,18 @@ class Graph(BaseGraph):
 		if node_type is None:
 			node_type = self._store.get('node_type', None)
 		if node_type is None:
-			node_type = tlx.zeros(self.num_nodes, dtype=tlx.int64)
+			node_type = tlx.zeros(shape=(self.num_nodes,) , dtype=tlx.int64)
 
 		if node_type_names is None:
 			store = self._store
 			node_type_names = store.__dict__.get('_node_type_names', None)
 		if node_type_names is None:
-			node_type_names = [str(i) for i in node_type.unique().tolist()]
+			node_type_names = [str(i) for i in np.unique(tlx.convert_to_numpy(node_type)).tolist()]
 
 		if edge_type is None:
 			edge_type = self._store.get('edge_type', None)
 		if edge_type is None:
-			edge_type = tlx.zeros(self.num_edges, dtype=tlx.int64)
+			edge_type = tlx.zeros(shape=(self.num_edges,), dtype=tlx.int64)
 
 		if edge_type_names is None:
 			store = self._store
@@ -718,10 +717,10 @@ class Graph(BaseGraph):
 		if edge_type_names is None:
 			edge_type_names = []
 			edge_index = self.edge_index
-			for i in edge_type.unique().tolist():
-				src, dst = edge_index[:, edge_type == i]
-				src_types = node_type[src].unique().tolist()
-				dst_types = node_type[dst].unique().tolist()
+			for i in np.unique(tlx.convert_to_numpy(edge_type)).tolist():
+				src, dst = tlx.mask_select(edge_index, edge_type == i, axis=1)
+				src_types = np.unique(tlx.convert_to_numpy(tlx.gather(node_type, src))).tolist()
+				dst_types = np.unique(tlx.convert_to_numpy(tlx.gather(node_type, dst))).tolist()
 				if len(src_types) != 1 and len(dst_types) != 1:
 					raise ValueError(
 						"Could not construct a 'HeteroData' object from the "
@@ -739,9 +738,8 @@ class Graph(BaseGraph):
 			idx = tlx.convert_to_numpy((node_type == i)).nonzero()[0]
 			node_ids[i] = tlx.convert_to_tensor(idx)
 			# node_ids[i] = (node_type == i).nonzero(as_tuple=False).view(-1)
-			index_map[node_ids[i]] = tlx.arange(start=0, limit=len(node_ids[i]))
-			index_map = tlx.tensor_scatter_nd_update(index_map, node_ids[i],
-			                                         tlx.arange(start=0, limit=len(node_ids[i]), dtype=tlx.int64))
+			# index_map[node_ids[i]] = tlx.arange(start=0, limit=len(node_ids[i]))
+			index_map = tlx.scatter_update(index_map, node_ids[i], tlx.arange(start=0, limit=len(node_ids[i]), dtype=tlx.int64))
 
 		# We iterate over edge types to find the local edge indices:
 		edge_ids = {}
@@ -757,10 +755,10 @@ class Graph(BaseGraph):
 				if attr == 'node_type' or attr == 'edge_type':
 					continue
 				elif tlx.is_tensor(value) and self.is_node_attr(attr):
-					data[key][attr] = value[node_ids[i]]
+					data[key][attr] = tlx.gather(value, node_ids[i])
 
 			if len(data[key]) == 0:
-				data[key].num_nodes = node_ids[i].size(0)
+				data[key].num_nodes = tlx.get_tensor_shape(node_ids[i])[0]
 
 		for i, key in enumerate(edge_type_names):
 			src, _, dst = key
@@ -768,12 +766,11 @@ class Graph(BaseGraph):
 				if attr == 'node_type' or attr == 'edge_type':
 					continue
 				elif attr == 'edge_index':
-					edge_index = value[:, edge_ids[i]]
-					edge_index[0] = index_map[edge_index[0]]
-					edge_index[1] = index_map[edge_index[1]]
+					edge_index = tlx.gather(value, edge_ids[i], axis=1)
+					edge_index = tlx.stack([tlx.gather(index_map, edge_index[0]), tlx.gather(index_map, edge_index[1])])
 					data[key].edge_index = edge_index
 				elif tlx.is_tensor(value) and self.is_edge_attr(attr):
-					data[key][attr] = value[edge_ids[i]]
+					data[key][attr] = tlx.gather(value, edge_ids[i])
 
 		# Add global attributes.
 		keys = set(data.keys) | {'node_type', 'edge_type', 'num_nodes'}

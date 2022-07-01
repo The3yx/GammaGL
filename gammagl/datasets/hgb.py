@@ -98,7 +98,6 @@ class HGBDataset(InMemoryDataset):
         x = ['info.dat', 'node.dat', 'link.dat', 'label.dat', 'label.dat.test', 'label.dat.test_full', 'meta.dat']
         return x
 
-
     @property
     def processed_file_names(self) -> str:
         return tlx.BACKEND + '_data.pt'
@@ -107,7 +106,7 @@ class HGBDataset(InMemoryDataset):
         url = self.url.format(self.names[self.name])
         path = download_url(url, self.raw_dir, self.names[self.name]+'.zip')
         extract_zip(path, self.raw_dir)
-        shutil.rmtree(osp.join(self.raw_dir,"__MACOSX"))
+        shutil.rmtree(osp.join(self.raw_dir, "__MACOSX"))
         for filename in self.raw_file_names:
             filePath = osp.join(self.raw_dir,self.names[self.name],filename)
             shutil.move(filePath, self.raw_dir)
@@ -165,9 +164,10 @@ class HGBDataset(InMemoryDataset):
         for n_type in n_types.values():
             if len(x_dict[n_type]) == 0:
                 data[n_type].x = tlx.ops.eye(num_nodes_dict[n_type])
+                data[n_type].num_nodes = num_nodes_dict[n_type]
             else:
                 data[n_type].x = tlx.ops.convert_to_tensor(x_dict[n_type])
-
+                data[n_type].num_nodes = num_nodes_dict[n_type]
 
         edge_index_dict = defaultdict(list)
         edge_weight_dict = defaultdict(list)
@@ -189,7 +189,6 @@ class HGBDataset(InMemoryDataset):
             if not np.allclose(edge_weight, np.ones_like(edge_weight)):
                 edge_weight = tlx.ops.convert_to_tensor(edge_weight)
                 data[e_type].edge_weight = edge_weight
-                    
 
         # Node classification:
         if self.name in ['acm', 'dblp', 'freebase', 'imdb']:
