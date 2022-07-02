@@ -102,7 +102,6 @@ def main(args):
 
         train_weights = model.trainable_weights
         loss_func = SemiSpvzLoss(model, loss)
-
         train_one_step = TrainOneStep(loss_func, optimizer, train_weights)
 
         best_val_loss = float('inf')

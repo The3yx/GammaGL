@@ -41,8 +41,7 @@ def download_url(url: str, folder: str, filename: str, log: bool = True):
         f.write(data.read())
 
     return path
-#TODO:现在有些属性,e.g. num_classes, num_etypes不应该存储，而是HeteroGraph()提供属性方法
-# 数据集处理对于HeteroGraph()的使用仅限于__setaddr__
+
 
 class HGBDataset(InMemoryDataset):
     r"""A variety of heterogeneous graph benchmark datasets from the
