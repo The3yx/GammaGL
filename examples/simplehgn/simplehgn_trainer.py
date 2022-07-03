@@ -1,7 +1,7 @@
 import argparse
 import os
 import sys
-os.environ['TL_BACKEND'] = 'tensorflow'
+os.environ['TL_BACKEND'] = 'paddle'
 sys.path.insert(0, os.path.abspath('../../')) # adds path2gammagl to execute in command line.
 sys.path.insert(0, os.path.abspath('./')) # adds path2gammagl to execute in command line.
 import tensorlayerx as tlx
@@ -69,7 +69,7 @@ def main(args):
     train_idx = mask_to_index(heterograph[targetType[str.lower(args.dataset)]].train_mask)
     split = int(train_idx.shape[0]*val_ratio)
     train_idx = train_idx[split:]
-    val_idx = train_idx[ :split]
+    val_idx = train_idx[:split]
     test_idx = mask_to_index(heterograph[targetType[str.lower(args.dataset)]].test_mask)
 
     data = {
@@ -113,7 +113,7 @@ def main(args):
             logits = model(data['x'], data['edge_index'], data['e_feat'])
             val_logits = tlx.gather(logits, data['val_idx'])
             val_y = tlx.gather(data['y'], data['val_idx'])
-            val_loss = loss(val_logits, val_y)
+            val_loss = tlx.ops.convert_to_numpy(loss(val_logits, val_y))
             val_micro_f1, val_macro_f1 = calculate_f1_score(val_logits, val_y)
             print("Epoch [{:0>3d}]  ".format(epoch + 1),
                "   train loss: {:.4f}".format(train_loss.item()),
