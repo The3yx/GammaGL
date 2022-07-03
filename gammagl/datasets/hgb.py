@@ -165,7 +165,8 @@ class HGBDataset(InMemoryDataset):
                 x_dict[n_type].append([float(v) for v in x[3].split(',')])
         for n_type in n_types.values():
             if len(x_dict[n_type]) == 0:
-                data[n_type].x = tlx.ops.eye(num_nodes_dict[n_type])
+                data[n_type].x = tlx.ops.convert_to_tensor(np.eye(num_nodes_dict[n_type]), dtype=tlx.ops.float32)
+                #data[n_type].x = tlx.ops.eye(num_nodes_dict[n_type])
                 data[n_type].num_nodes = num_nodes_dict[n_type]
             else:
                 data[n_type].x = tlx.ops.convert_to_tensor(x_dict[n_type])
@@ -204,26 +205,27 @@ class HGBDataset(InMemoryDataset):
                 if not hasattr(data[n_type], 'y'):
                     num_nodes = data[n_type].num_nodes
                     if self.name in ['imdb']:  # multi-label
-                        y_list = np.zeros((num_nodes, num_classes))
+                        data[n_type].y = np.zeros((num_nodes, num_classes))
                     else:
-                        y_list = np.full((num_nodes, ), -1, dtype='int64')
-                    train_mask = np.full((num_nodes), False, dtype='bool')
-                    test_mask = np.full((num_nodes), False, dtype='bool')
+                        data[n_type].y = np.full((num_nodes, ), -1, dtype='int64')
+                    data[n_type].train_mask = np.full((num_nodes), False, dtype='bool')
+                    data[n_type].test_mask = np.full((num_nodes), False, dtype='bool')
                     
-                if(len(y_list.shape) > 1):
+                if(len(data[n_type].y.shape) > 1):
                 # multi-label
                     for v in y[3].split(','):
-                        y_list[n_id, int(v)] = 1
+                        data[n_type].y[n_id, int(v)] = 1
                 else:
-                    y_list[n_id] = int(y[3])
-                train_mask[n_id] = True
+                    data[n_type].y[n_id] = int(y[3])
+                data[n_type].train_mask[n_id] = True
+
             for y in test_ys:
                 n_id, n_type = mapping_dict[int(y[0])], n_types[int(y[2])]
-                test_mask[n_id] = True
-
-            data[n_type].y = tlx.ops.convert_to_tensor(y_list)
-            data[n_type].train_mask = tlx.ops.convert_to_tensor(train_mask)
-            data[n_type].test_mask = tlx.ops.convert_to_tensor(test_mask)
+                data[n_type].test_mask[n_id] = True
+                
+            data[n_type].y = tlx.ops.convert_to_tensor(data[n_type].y)
+            data[n_type].train_mask = tlx.ops.convert_to_tensor(data[n_type].train_mask)
+            data[n_type].test_mask = tlx.ops.convert_to_tensor(data[n_type].test_mask)
         else:  # Link prediction:
             raise NotImplementedError
             
